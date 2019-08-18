@@ -1,0 +1,112 @@
+<!--
+* Copyright (C) 2010, Freescale Semiconductor, Inc. All Rights Reserved.
+* The CFG element contains a list of recognized usb devices.
+*  DEV elements provide a name, class, vid and pid for each device.
+*
+* Each LIST element contains a list of update instructions.
+*  "Install" - Erase media and install firmware.
+*  "Update" - Update firmware only.
+*
+* Each CMD element contains one update instruction of attribute type.
+*  "pull" - Does UtpRead(body, file) transaction.
+*  "push" - Does UtpWrite(body, file) transaction.
+*  "drop" - Does UtpCommand(body) then waits for device to disconnect.
+*  "boot" - Finds configured device, forces it to "body" device and downloads "file".
+*  "find" - Waits for "timeout" seconds for the "body" device to connect.
+*  "show" - Parse and show device info in "file".  
+-->
+
+        <!--
+    * The mx50 supports OTP operation through /sys
+    * Read: cat /sys/fsl_otp/HW_OCOTP_MAC0
+    * Write: echo 0x10234567 > /sys/fsl_otp/HW_OCOTP_MAC0
+    * If the user wants to burn OTP at mfg-tool, please take below
+    * as an example
+    *
+    * <CMD type="push" body="$ echo 0x10234567 > /sys/fsl_otp/HW_OCOTP_MAC0">Burn ethernet MAC0 at OTP</CMD>
+    -->
+
+<UCL>
+    <CFG>
+        <STATE name="BootStrap" dev="MX6SL" vid="15A2" pid="0063"/>
+	<!-- <STATE name="Updater"   dev="MSC" vid="066F" pid="37FF"/> -->
+	<STATE name="Updater"   dev="MSC" vid="066F" pid="37FF"/>
+    </CFG>
+
+    <LIST name="ZG-EMMC" desc="Choose eMMC as media for ZG">
+        <!-- Launch OS from memory -->
+        <CMD state="BootStrap" type="boot" body="Recovery" file ="u-boot.imx" >Loading U-boot</CMD>
+        <CMD state="BootStrap" type="load" file="zImage" address="0x82000000"
+            loadSection="OTH" setSection="OTH" HasFlashHeader="FALSE" >Loading Kernel.</CMD>
+        <CMD state="BootStrap" type="load" file="initramfs.cpio.gz.uboot" address="0x89000000"
+            loadSection="OTH" setSection="OTH" HasFlashHeader="FALSE" >Loading Initramfs.</CMD>
+        <CMD state="BootStrap" type="load" file="zero-gravitas.dtb" address="0x88000000"
+            loadSection="OTH" setSection="OTH" HasFlashHeader="FALSE" >Loading DTB.</CMD>
+        <CMD state="BootStrap" type="jump" >Starting OS image.</CMD>
+
+        <CMD state="Updater" type="push" body="$ ls /dev/mmc*">Listing mmc devices</CMD>
+	<CMD state="Updater" type="push" body="$ displayimage /usr/share/misc/startingflash.png">Showing start screen</CMD>
+	<CMD state="Updater" type="push" body="$ displayimage /usr/share/misc/startingflash.png">Showing start screen</CMD>
+
+        <!-- Flash u-boot -->
+        <CMD state="Updater" type="push" body="$ dd if=/dev/zero of=/dev/mmcblk1 bs=512 seek=1536 count=16">Clearing u-boot parameter data</CMD>
+        <CMD state="Updater" type="push" body="$ echo 0 > /sys/block/mmcblk1boot0/force_ro">Enabling write access to boot partition 1</CMD>
+        <CMD state="Updater" type="push" body="$ dd if=/dev/zero of=/dev/mmcblk1boot0 bs=512 count=2">Clearing boot partition</CMD>
+        <CMD state="Updater" type="push" body="send" file="files/u-boot.imx">Sending U-Boot</CMD>
+        <CMD state="Updater" type="push" body="$ dd if=$FILE of=/dev/mmcblk1boot0 bs=512 seek=2">Writing u-boot to eMMC</CMD>
+        <CMD state="Updater" type="push" body="$ echo 1 > /sys/block/mmcblk1boot0/force_ro"> Disabling write access to boot partition 1</CMD>
+
+        <CMD state="Updater" type="push" body="$ echo 8 > /sys/devices/soc0/soc/2100000.aips-bus/2194000.usdhc/mmc_host/mmc1/mmc1:0001/boot_config">Setting boot partition to boot partition 1</CMD>
+
+	<CMD state="Updater" type="push" body="send" file="wacomflash.tgz">Sending wacom flashing tool</CMD>
+	<CMD state="Updater" type="push" body="$ tar xf $FILE "> Extracting wacom flashing tool...</CMD>
+	<CMD state="Updater" type="push" body="$ ./wacom_flash W9013_0734.hex 0 i2c-1"> Flashing wacom firmware...</CMD>
+
+        <!-- Set up disks -->
+        <CMD state="Updater" type="push" body="send" file="partition.sh">Sending partitioning script</CMD>
+        <CMD state="Updater" type="push" body="$ sh $FILE /dev/mmcblk1">Partitioning...</CMD>
+
+        <!-- Create boot partition -->
+        <CMD state="Updater" type="push" body="$ mkfs.vfat /dev/mmcblk1p1">Formatting boot partition</CMD>
+        <CMD state="Updater" type="push" body="$ mkdir -p /mnt/mmcblk1p1"/>
+        <CMD state="Updater" type="push" body="$ mount -t vfat /dev/mmcblk1p1 /mnt/mmcblk1p1"/>
+        <CMD state="Updater" type="push" body="send" file="files/waveform.bin">Sending boot waveform</CMD>
+        <CMD state="Updater" type="push" body="$ cp $FILE /mnt/mmcblk1p1/waveform.bin">Storing boot waveform</CMD>
+        <CMD state="Updater" type="push" body="send" file="files/splash.bmp">Sending boot logo</CMD>
+        <CMD state="Updater" type="push" body="$ cp $FILE /mnt/mmcblk1p1/splash.bmp">Storing boot logo</CMD>
+        <CMD state="Updater" type="push" body="send" file="files/lowbattery.bmp">Sending boot lowbattery image</CMD>
+        <CMD state="Updater" type="push" body="$ cp $FILE /mnt/mmcblk1p1/lowbattery.bmp">Storing boot lowbattery image</CMD>
+        <CMD state="Updater" type="push" body="$ umount /mnt/mmcblk1p1">Unmounting boot partition</CMD>
+
+        <!-- Write rootfs -->
+        <CMD state="Updater" type="push" body="$ mkfs.ext4 -L rootA -F /dev/mmcblk1p2">Formatting 1. rootfs partition</CMD>
+        <CMD state="Updater" type="push" body="$ mkdir -p /mnt/mmcblk1p2"/>
+        <CMD state="Updater" type="push" body="$ mount -t ext4 /dev/mmcblk1p2 /mnt/mmcblk1p2"/>
+        <CMD state="Updater" type="push" body="pipe tar -zxv -C /mnt/mmcblk1p2" file="files/rootfs.tar.gz">Sending and writing 2. rootfs</CMD>
+        <CMD state="Updater" type="push" body="frf">Finishing 1. rootfs write</CMD>
+        <CMD state="Updater" type="push" body="$ umount /mnt/mmcblk1p2">Unmounting 1. rootfs partition</CMD>
+
+        <CMD state="Updater" type="push" body="$ mkfs.ext4 -L rootB -F /dev/mmcblk1p3">Formatting 2. rootfs partition</CMD>
+        <CMD state="Updater" type="push" body="$ mkdir -p /mnt/mmcblk1p3"/>
+        <CMD state="Updater" type="push" body="$ mount -t ext4 /dev/mmcblk1p3 /mnt/mmcblk1p3"/>
+        <CMD state="Updater" type="push" body="pipe tar -zxv -C /mnt/mmcblk1p3" file="files/rootfs2.tar.gz">Sending and writing 2. rootfs</CMD>
+        <CMD state="Updater" type="push" body="frf">Finishing 2. rootfs write</CMD>
+        <CMD state="Updater" type="push" body="$ umount /mnt/mmcblk1p3">Unmounting 2. rootfs partition</CMD>
+
+
+	<CMD state="Updater" type="push" body="$ mkfs.ext4 -F -L home /dev/mmcblk1p7">Formatting home partition</CMD>
+        <CMD state="Updater" type="push" body="$ mkdir -p /mnt/mmcblk1p7"/>
+	<CMD state="Updater" type="push" body="$ mount /dev/mmcblk1p7 /mnt/mmcblk1p7">Mounting home partition</CMD>
+        <CMD state="Updater" type="push" body="pipe tar -zxv -C /mnt/mmcblk1p7" file="files/home.tgz">Sending and writing home partition</CMD>
+        <CMD state="Updater" type="push" body="frf">Finishing home partition.</CMD>
+        <CMD state="Updater" type="push" body="$ umount /mnt/mmcblk1p7">Unmounting home partition</CMD>
+
+
+
+	<CMD state="Updater" type="push" body="$ displayimage /usr/share/misc/finishflash.png">Showing end screen</CMD>
+	<!-- <CMD state="Updater" type="push" body="$ reboot -p">Done.</CMD> -->
+	<CMD state="Updater" type="push" body="!3">Done</CMD>
+        <!-- The below commands will trigger reboot -->
+
+ </LIST>
+</UCL>
